@@ -4,7 +4,6 @@ import sys
 import time
 import csv
 import json
-import random
 from datetime import datetime
 from natsort import natsorted as na
 import pandas as pd
@@ -70,10 +69,7 @@ class PipelineConfig:
         self.compress_n = 500
         self.compress_m = 1000
 
-        # 5. 测试样本数量
-        self.test_sample_size = 20
-
-        # 6. 输出目录
+        # 5. 输出目录
         self.timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         self.output_base_dir = f"eval_output_{self.timestamp}"
         self.simplified_dir = os.path.join(self.output_base_dir, "1_simplified_docs")
@@ -119,11 +115,6 @@ class DocumentEvaluationPipeline:
                         self.files_by_category[category] = files
                         for f in files:
                             self.all_files.append((category, f))
-
-        # 随机抽取 20 个样本
-        random.seed(42)
-        if len(self.all_files) > self.config.test_sample_size:
-            self.all_files = random.sample(self.all_files, self.config.test_sample_size)
 
         self.task_instructions = {
             "0_未分类或杂项": "提取文本的核心观点、关键人物/实体，并进行简洁的总结。",
@@ -287,6 +278,14 @@ class DocumentEvaluationPipeline:
 {content}
 """
 
+    def _simplify_md(self, content, model_type, prompt_version):
+        max_nums = self._get_max_nums(content)
+        if max_nums is None:
+            return None
+        prompt = self._build_simplify_prompt(content, max_nums, prompt_version)
+        result = invoke_model_ds_rr(prompt, model=model_type)
+        return result if isinstance(result, str) else None
+
     def _generate_task_output(self, content, category, model_type):
         task_instruction = self.task_instructions.get(
             category, self.task_instructions["0_未分类或杂项"]
@@ -393,14 +392,6 @@ class DocumentEvaluationPipeline:
                 data["total_score"] = float(tot_match.group(1))
 
             return data
-
-    def _simplify_md(self, content, model_type, prompt_version):
-        max_nums = self._get_max_nums(content)
-        if max_nums is None:
-            return None
-        prompt = self._build_simplify_prompt(content, max_nums, prompt_version)
-        result = invoke_model_ds_rr(prompt, model=model_type)
-        return result if isinstance(result, str) else None
 
     def run_step_1_simplify(self):
         print(
@@ -647,7 +638,6 @@ class DocumentEvaluationPipeline:
         print("  LLM 任务导向评测 (Task-Oriented Eval) 流水线")
         print(f"  启动时间: {self.config.timestamp}")
         print(f"  输入目录: {self.config.input_dir}")
-        print(f"  测试样本数: {len(self.all_files)}")
         print(f"  输出目录: {self.config.output_base_dir}")
         print(f"  压缩模型: {', '.join(self.config.models_to_test)}")
         print(f"  Prompt 版本: {', '.join(self.config.compress_prompt_versions)}")
